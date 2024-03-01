@@ -1,4 +1,6 @@
 import math
+import threading
+import time
 from typing import List, Tuple
 
 import numpy as np
@@ -8,11 +10,16 @@ from pygame import SurfaceType, Surface
 from client.components.piece import Piece, Rook, Pawn, Knight, King, Bishop, Queen
 from client.services.base_service import BaseService
 from client.services.setting import Setting
+from client.services.stockfish_service import StockfishService
 
 
 class Board(BaseService):
-    def __init__(self, setting: Setting):
+    row_notation = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
+    col_notation = ['8', '7', '6', '5', '4', '3', '2', '1']
+
+    def __init__(self, stockfish: StockfishService, setting: Setting):
         BaseService.__init__(self)
+        self.stockfish = stockfish
         self.setting = setting
         self._screen: Surface | SurfaceType
         self._board: Surface | SurfaceType
@@ -28,7 +35,10 @@ class Board(BaseService):
         self.font = pygame.font.Font('./assets/fonts/Roboto-Regular.ttf', 15)
         self.selectedPiece: Piece = None
 
-        self._is_white_turn = False
+        self._is_white_turn = True
+        self.best_move = None
+        self.is_ai = True
+        self.ai_turn = not self.is_white_turn
 
         # self.p = Pawn(False, 0, 0)
         # self.p2 = Pawn(False, 5, 2)
@@ -43,6 +53,8 @@ class Board(BaseService):
         # self.coordinate[5, 5] = self.n
         # self.coordinate[7, 2] = self.k
         #
+        self.pgn: list[str] = []
+
         self.pieces = pygame.sprite.Group()
         # self.pieces.add(self.p)
         # self.pieces.add(self.p1)
@@ -52,7 +64,10 @@ class Board(BaseService):
         # self.pieces.add(self.k)
 
         self.setDefaultBoard()
-        # self.setBoardByFEN("8/R5pk/8/8/8/8/8/K7 w KQkq - 0 1")
+        # self.set  BoardByFEN("k7/p7/8/8/1P6/8/8/K7 w KQkq - 0 1")
+        # self.setBoardByFEN("rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2")
+        # self.setBoardByFEN("rnbqkb1r/pp1p1ppp/8/2p1p3/8/3N1N2/PPPPPPPP/R1BQKB1R w KQkq - 0 6    ")
+        # self.stockfish.set_fen_position("rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2")
         self.compute_legal_move()
 
     def empty_board(self):
@@ -106,8 +121,19 @@ class Board(BaseService):
     def setBoardByFEN(self, fen: str):
         self.empty_board()
         self.logger.info(f"Loading FEN Board: {fen}")
+        self.stockfish.set_fen_position(fen)
+
         items = fen.split(" ")
+
         fenBoard = items[0].split("/")
+        self.load_FEN_pieces(fenBoard)
+
+        self.is_white_turn = True if items[1].lower() == 'w' else False
+        self.ai_turn = not self.is_white_turn
+
+        pass
+
+    def load_FEN_pieces(self, fenBoard: list[str]) -> None:
         for y, item in enumerate(fenBoard):
             offset = 0
             for char in item:
@@ -147,8 +173,6 @@ class Board(BaseService):
                             raise ValueError(f"p is not a number: {p}")
                 offset += 1
 
-        pass
-
     def setBoardByNotations(self, notations: list[str]) -> None:
         self.logger.log(f"Loading Notations Board: {notations}")
         pass
@@ -178,12 +202,12 @@ class Board(BaseService):
             numberImg = None
             alphabetImg = None
             if i % 2 == 0:
-                numberImg = self.font.render(str(8 - i), True, self.setting.color1)
-                alphabetImg = self.font.render(chr(i + 97), True, self.setting.color1)
+                numberImg = self.font.render(Board.col_notation[i], True, self.setting.color1)
+                alphabetImg = self.font.render(Board.row_notation[i], True, self.setting.color1)
 
             else:
-                numberImg = self.font.render(str(8 - i), True, self.setting.color2)
-                alphabetImg = self.font.render(chr(i + 97), True, self.setting.color2)
+                numberImg = self.font.render(Board.col_notation[i], True, self.setting.color2)
+                alphabetImg = self.font.render(Board.row_notation[i], True, self.setting.color2)
 
             # Setup draw position at the end of the column
             numberRect = numberImg.get_rect()
@@ -197,6 +221,14 @@ class Board(BaseService):
             alphabetRect.y = self.minDimension - 20
             self.board.blit(alphabetImg, alphabetRect)
 
+    def handle_event(self, event):
+        # proceed events
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            pos = pygame.mouse.get_pos()
+            rel_x, rel_y = pos[0] - self.drawingPos[0], pos[1] - self.drawingPos[1]
+            self.handle_moving((rel_x, rel_y))
+            #
+
     def draw(self):
 
         if self.screen is None:
@@ -208,33 +240,6 @@ class Board(BaseService):
         self.drawNotations()
 
         self.screen.blit(self.board, self.drawingPos)
-
-        # get all events
-        ev = pygame.event.get()
-
-        # proceed events
-        for event in ev:
-
-            # handle MOUSEBUTTONUP
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                pos = pygame.mouse.get_pos()
-                rel_x, rel_y = pos[0] - self.drawingPos[0], pos[1] - self.drawingPos[1]
-                self.handle_moving((rel_x, rel_y))
-                #
-                # do something with the clicked sprites...
-
-        # pygame.draw.rect(self.screen, 'light gray', [x, y, height, width])
-
-        # pygame.draw.rect(self.screen, 'gray', [0, 800, self.setting.WIDTH, 100])
-        # pygame.draw.rect(self.screen, 'gold', [0, 800, self.setting.WIDTH, 100], 5)
-        # pygame.draw.rect(self.screen, 'gold', [800, 0, 200, self.setting.HEIGHT], 5)
-        # status_text = ['White: Select a Piece to Move!', 'White: Select a Destination!',
-        #                'Black: Select a Piece to Move!', 'Black: Select a Destination!']
-        # self.screen.blit(big_font.render(status_text[turn_step], True, 'black'), (20, 820))
-        # for i in range(9):
-        #     pygame.draw.line(self.screen, 'black', (0, 100 * i), (800, 100 * i), 2)
-        #     pygame.draw.line(self.screen, 'black', (100 * i, 0), (100 * i, 800), 2)
-        # self.screen.blit(medium_font.render('FORFEIT', True, 'black'), (810, 830))
 
     def handle_moving(self, pos: tuple[int, int]):
         clicked_sprites = [s for s in self.pieces if s.rect.collidepoint(pos)]
@@ -262,6 +267,19 @@ class Board(BaseService):
     def compute_legal_move(self):
         self._compute_all_moves()
         self.filter_invalid_moves()
+        # self.best_move = self.stockfish.get_best_move()
+        # self.logger.info(f"Best move: {self.best_move}")
+
+    def _handle_best_move(self, return_value):
+        self.best_move = return_value
+        self.logger.info(f"Best move: {self.best_move}")
+
+    def next_turn(self):
+        self.is_white_turn = not self.is_white_turn
+        if self.is_ai and self.is_white_turn == self.ai_turn:
+            self.make_turn_by_stockfish()
+        self.stockfish.get_best_move(self._handle_best_move)
+        self.compute_legal_move()
 
     def _handle_click_empty(self, pos: tuple[int, int]):
         if self.selectedPiece is None:
@@ -271,9 +289,7 @@ class Board(BaseService):
         if len(clicked_sprites) > 0:
             self.logger.info(f"Move to pos: {clicked_sprites[0].x}, {clicked_sprites[0].y}")
             self.make_turn((clicked_sprites[0].x, clicked_sprites[0].y))
-
-            self.is_white_turn = not self.is_white_turn
-            self.compute_legal_move()
+            self.next_turn()
 
 
         else:
@@ -281,7 +297,24 @@ class Board(BaseService):
             self.selectedPiece = None
             self.logger.info(f"Click none")
 
-    def make_turn(self, dest: tuple[int, int]) -> None | Piece:
+    def _handle_en_passant(self, pawn: Pawn, dest: tuple[int, int]):
+        if self.coordinate[dest[0], dest[1]] is not None:
+            return None
+
+        check_pos = 2 if pawn.is_white else 5
+        adder = 1 if pawn.is_white else -1
+        if dest[1] != check_pos:
+            return
+
+        x, y = dest[0], dest[1] + adder
+        item = self.coordinate[x][y]
+        if isinstance(item, Pawn) and item.is_white != pawn.is_white and item.is_first_move:
+            self.coordinate[x][y] = None
+            self.pieces.remove(item)
+            return item
+        return None
+
+    def make_turn(self, dest: tuple[int, int], test_mode=False) -> None | Piece:
         x, y = dest[0], dest[1]
 
         from_piece = self.selectedPiece
@@ -296,25 +329,112 @@ class Board(BaseService):
 
         self.coordinate[from_x, from_y] = None
 
+        if isinstance(from_piece, Pawn):
+            dest_item = self._handle_en_passant(from_piece, dest)
+            dest_item = self.coordinate[x, y] if dest_item is None else dest_item
+
+        if not test_mode:
+            pgn = self.create_pgn_turn(from_piece, dest, dest_item)
+            square_name = self.create_square_name(from_piece, dest)
+            self.stockfish.make_move(square_name)
+            self.pgn.append(pgn)
+            self.logger.info(f"PGN: {self.pgn}")
+            self.logger.info(f"Long PGN: {square_name}")
+
         from_piece.move(x, y)
 
         self.coordinate[x, y] = from_piece
 
-        if isinstance(from_piece, Pawn):
-            from_piece.isFirstMove = False
-
-            if from_piece.is_white and dest[1] == 6:
-                from_piece.isFirstMove = True
-            if not from_piece.is_white and dest[1] == 1:
-                from_piece.isFirstMove = True
         if dest_item is not None:
             self.pieces.remove(dest_item)
 
+        #         Play capture sound
+
+        #    Play move sound
+
         return dest_item
 
-    #         Play capture sound
+    def make_turn_by_stockfish(self):
+        def callback(pgn):
+            if "O-O" in pgn:
+                self.logger.info(f"PGN: {self.pgn}")
+                raise NotImplementedError("Castling not implemented yet")
 
-    #    Play move sound
+            moves = []
+            for i, char in enumerate(pgn):
+                if char in Board.row_notation:
+                    moves.append(pgn[i:i + 2])
+
+            self.logger.info(f"Moves: {moves}")
+            from_pos, to_pos = moves
+
+            from_x = Board.row_notation.index(from_pos[0])
+            from_y = Board.col_notation.index(from_pos[1])
+
+            to_x = Board.row_notation.index(to_pos[0])
+            to_y = Board.col_notation.index(to_pos[1])
+            item = self.coordinate[from_x][from_y]
+            self.selectedPiece = item
+            self.logger.info(f"PGN: {self.pgn}")
+            self.logger.info(f"{from_x}, {from_y}, {to_x}, {to_y}, selectedPiece: {self.selectedPiece}")
+            self.make_turn((to_x, to_y))
+            self.next_turn()
+
+        self.stockfish.get_best_move(callback)
+
+    def create_pgn_turn(self, piece: Piece, dest: tuple[int, int], capture=None) -> str:
+        x, y = dest[0], dest[1]
+        adder = ""
+
+        if capture is None:
+            capture = self.coordinate[x][y]
+
+        if isinstance(piece, Rook) or isinstance(piece, Knight):
+            adder += self.pgn_for_pairs(piece, dest)
+
+        if capture is not None:
+            if isinstance(piece, Pawn):
+                adder += Board.row_notation[piece.x]
+            adder += "x"
+
+        pos = Board.row_notation[x] + Board.col_notation[y]
+
+        return piece.shortName + adder + pos
+
+    def create_square_name(self, piece: Piece, dest: tuple[int, int]):
+        x, y = dest[0], dest[1]
+        adder = ""
+
+        # if capture is None:
+        #     capture = self.coordinate[x][y]
+
+        long = Board.row_notation[piece.x] + Board.col_notation[piece.y]
+
+        # if isinstance(piece, Rook) or isinstance(piece, Knight):
+        #     adder += self.pgn_for_pairs(piece, dest)
+        #
+        # if capture is not None:
+        #     if isinstance(piece, Pawn):
+        #         adder += Board.row_notation[piece.x]
+        #     adder += "x"
+        #
+        pos = Board.row_notation[x] + Board.col_notation[y]
+
+        return long + pos
+
+    def pgn_for_pairs(self, piece: Piece, dest: tuple[int, int]) -> str:
+        x, y = dest[0], dest[1]
+        another = [p for p in self.pieces if type(p) == type(piece) and p.is_white == piece.is_white and p != piece]
+        if len(another) == 0:
+            return ""
+        other = another[0]
+        if not isinstance(other, Piece):
+            self.logger.error(f"{other} is not a Piece")
+            raise ValueError(f"{other} is not a Piece")
+
+        can_other_move_to_dest = [move for move in other.possibleMoves if move.x == x and move.y == y]
+        self.logger.info(can_other_move_to_dest)
+        return Board.row_notation[piece.x] if len(can_other_move_to_dest) > 0 else ""
 
     def filter_invalid_moves(self) -> None:
         black_king, white_king = self.get_black_and_white_king()
@@ -335,7 +455,7 @@ class Board(BaseService):
             for move in piece.possibleMoves:
 
                 self.selectedPiece = piece
-                remove_piece = self.make_turn((move.x, move.y))
+                remove_piece = self.make_turn((move.x, move.y), True)
 
                 if remove_piece is not None:
                     remove_piece.possibleMoves.empty()
@@ -351,7 +471,7 @@ class Board(BaseService):
 
                 # Undo
                 self.selectedPiece = piece
-                self.make_turn((x, y))
+                self.make_turn((x, y), True)
 
                 if remove_piece is not None:
                     self.set_piece(remove_piece)
@@ -370,7 +490,6 @@ class Board(BaseService):
             # [move for move in piece.possibleMoves if move not in illegal_move_dict[piece]]
             piece.possibleMoves.empty()
             [piece.possibleMoves.add(move) for move in possible]
-
 
     def _compare(self, move, illegal_moves):
         for illegal_move in illegal_moves:

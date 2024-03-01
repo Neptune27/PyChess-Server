@@ -72,55 +72,6 @@ class Piece(BaseService, Sprite):
     def clone(self):
         return Piece(self.is_white, self.x, self.y)
 
-    # def _is_cover_king(self, board: ndarray):
-    #     movements, is_continuous = self.get_piece_moves_dict("Q")
-    #     for add_x, add_y in movements:  # Loop through piece movements list
-    #         new_x, new_y = self.x + add_x, self.y + add_y  # Get new starting pos
-    #         while not _is_out_of_bounds(new_x, new_y):
-    #
-    #             item = board[new_x][new_y]
-    #
-    #             # Check if the square is empty
-    #             if item is None:
-    #                 new_x += add_x
-    #                 new_y += add_y
-    #                 continue
-    #
-    #             if not isinstance(item, Piece):
-    #                 self.logger.error("Item is not a Piece, what?")
-    #                 raise ValueError("WTF")
-    #
-    #             if isinstance(item, King) and self.is_white == item.is_white:
-    #                 return True
-    #
-    #             # Collides with team piece
-    #             new_x += add_x
-    #             new_y += add_y
-    #
-    #     return False
-    #
-    # def is_pin(self, board: ndarray):
-    #     """Check whether a piece is pinned or not"""
-    #     if not self._is_cover_king(board):
-    #         return []
-    #
-    #     piece = Queen(self.is_white, self.x, self.y)
-    #     piece._generate_non_pawn_move(board)
-    #     pinned = []
-    #     for move in piece.possibleMoves:
-    #         if not isinstance(move, GreenDot):
-    #             raise ValueError("Item is not a GreenDot, what?")
-    #
-    #         item = board[move.x][move.y]
-    #
-    #         if not isinstance(item, Piece):
-    #             continue
-    #
-    #         if isinstance(item, Queen) or isinstance(item, Rook) or isinstance(item, Bishop):
-    #             pinned.append(item)
-    #
-    #     return pinned
-
     def _generate_non_pawn_move(self, board: ndarray) -> None:
         piece_type = self.shortName
         movements, is_continuous = self.get_piece_moves_dict(piece_type)
@@ -193,11 +144,13 @@ def _is_out_of_bounds(x, y):
 
 
 class Pawn(Piece):
-    def __init__(self, is_white: bool, x: int, y: int, isFirstMove=True, is_selected=False) -> None:
+    def __init__(self, is_white: bool, x: int, y: int, is_first_move=False, is_selected=False) -> None:
         super().__init__(is_white, x, y, is_selected)
-        self.isFirstMove = isFirstMove
         self.name = "Pawn"
         self.shortName = ""
+        self.is_first_move = is_first_move
+        self.first_move_y = -1
+
         if self.is_white:
             self.image = pygame.image.load("assets/img/white_pawn.png", )
         else:
@@ -208,6 +161,17 @@ class Pawn(Piece):
 
         self.rect = self.image.get_rect()
         self.rect.center = self._compute_center()
+
+    def move(self, x, y):
+        if self.can_two_square_move():
+            self.is_first_move = True
+            self.first_move_y = y
+        elif self.first_move_y == y:
+            self.is_first_move = True
+        else:
+            self.is_first_move = False
+
+        Piece.move(self, x, y)
 
     def _compute(self, board: ndarray[Any, dtype]):
         """Generate pawn moves"""
@@ -227,7 +191,8 @@ class Pawn(Piece):
         if board[x][y + direction] is None:  # If empty
             self.possibleMoves.add(GreenDot(x, y + direction))
             # Two square move
-            if self.isFirstMove and board[x][y + (direction * 2)] is None:
+
+            if self.can_two_square_move() and board[x][y + (direction * 2)] is None:
                 # If its empty and pawn hasn't moved
                 # f"{col}{row}:{col}{row + (direction * 2)}:N")
                 self.possibleMoves.add(GreenDot(x, y + (direction * 2)))
@@ -242,6 +207,7 @@ class Pawn(Piece):
 
             item = board[new_x][new_y]
             if item is None:  # Not empty square
+                self._add_en_passant(board, (new_x, new_y))
                 continue
 
             if not isinstance(item, Piece):
@@ -249,6 +215,21 @@ class Pawn(Piece):
 
             if item.is_white != self.is_white:  # Collides with enemy
                 self.possibleMoves.add(GreenDot(new_x, new_y))
+
+    def _add_en_passant(self, board: ndarray, move: tuple[int, int]) -> None:
+        check_pos = 2 if self.is_white else 5
+        adder = 1 if self.is_white else -1
+        if move[1] != check_pos:
+            return
+
+        x, y = move[0], move[1] + adder
+        item = board[x][y]
+        if isinstance(item, Pawn) and item.is_white != self.is_white and item.is_first_move:
+            self.possibleMoves.add(GreenDot(move[0], move[1]))
+
+    def can_two_square_move(self):
+        y = 6 if self.is_white else 1
+        return self.y == y
 
     def compute_possible_moves(self, board: ndarray[Any, dtype]):
         self.possibleMoves.empty()

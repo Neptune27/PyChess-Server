@@ -6,15 +6,17 @@ from pygame import SurfaceType, Surface
 from client.services.base_service import BaseService
 from client.services.board import Board
 from client.services.setting import Setting
+from client.services.stockfish_service import Stockfish
 
 
 class Game(BaseService):
     screen: Surface | SurfaceType = None
 
     def __init__(self, setting: Setting,
-                 board: Board):
+                 board: Board, stockfish: Stockfish):
         BaseService.__init__(self)
 
+        self.stockfish = stockfish
         self.setting = setting
         self.board = board
         self.run = False
@@ -35,9 +37,15 @@ class Game(BaseService):
             self.board.draw()
 
             # event handling
-            for event in pygame.event.get():
+            events = pygame.event.get()
+            for event in events:
                 if event.type == pygame.QUIT:
                     self.logger.info('Game quit')
                     exit()
+
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    self.logger.info(event)
+                    self.board.handle_event(event)
+
 
             pygame.display.flip()
