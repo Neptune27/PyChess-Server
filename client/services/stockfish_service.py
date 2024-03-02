@@ -2,6 +2,7 @@ import asyncio
 import os
 import platform
 import threading
+from collections import deque
 
 from stockfish import Stockfish
 
@@ -42,6 +43,8 @@ class StockfishService(BaseService):
             "UCI_Elo": 1350
         })
 
+        self.deque = deque()
+
     def run(self):
         pass
 
@@ -57,9 +60,12 @@ class StockfishService(BaseService):
     def _get_best_move(self, callback):
         best_move = self.stockfish.get_best_move()
         callback(best_move)
+        self.deque.popleft()
 
     def get_best_move(self, callback):
-        threading.Thread(target=self._get_best_move, args=[callback]).start()
+        if len(self.deque) == 0:
+            self.deque.append(1)
+            threading.Thread(target=self._get_best_move, args=[callback]).start()
 
     def make_move(self, pgn):
         self.stockfish.make_moves_from_current_position([pgn])

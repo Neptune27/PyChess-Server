@@ -1,7 +1,9 @@
 import math
 import threading
 import time
+from collections import deque
 from typing import List, Tuple
+from queue import Queue
 
 import numpy as np
 import pygame
@@ -39,6 +41,8 @@ class Board(BaseService):
         self.best_move = None
         self.is_ai = True
         self.ai_turn = not self.is_white_turn
+
+        self.deque = deque()
 
         # self.p = Pawn(False, 0, 0)
         # self.p2 = Pawn(False, 5, 2)
@@ -175,7 +179,7 @@ class Board(BaseService):
 
     def setBoardByNotations(self, notations: list[str]) -> None:
         self.logger.log(f"Loading Notations Board: {notations}")
-        pass
+        raise NotImplementedError("")
 
     def setDefaultBoard(self):
         self.logger.info("Loading default board...")
@@ -229,14 +233,31 @@ class Board(BaseService):
             self.handle_moving((rel_x, rel_y))
             #
 
+    def handle_queue(self):
+        if len(self.deque) == 0:
+            return
+
+        item: str = self.deque.popleft()
+        items = item.split("|")
+        self.logger.info(items)
+        match items[0]:
+            case "ai":
+                notation = items[1]
+                self.make_turn_by_square_notation(notation)
+
     def draw(self):
 
         if self.screen is None:
             self.logger.error(f"Screen is not defined")
             raise Exception("Screen is not defined")
+
         self.drawBoard(self.rectDimension)
+
+        self.handle_queue()
+
         self.pieces.draw(self.board)
         self.pieces.update(screen=self.board)
+
         self.drawNotations()
 
         self.screen.blit(self.board, self.drawingPos)
@@ -360,27 +381,30 @@ class Board(BaseService):
                 self.logger.info(f"PGN: {self.pgn}")
                 raise NotImplementedError("Castling not implemented yet")
 
-            moves = []
-            for i, char in enumerate(pgn):
-                if char in Board.row_notation:
-                    moves.append(pgn[i:i + 2])
-
-            self.logger.info(f"Moves: {moves}")
-            from_pos, to_pos = moves
-
-            from_x = Board.row_notation.index(from_pos[0])
-            from_y = Board.col_notation.index(from_pos[1])
-
-            to_x = Board.row_notation.index(to_pos[0])
-            to_y = Board.col_notation.index(to_pos[1])
-            item = self.coordinate[from_x][from_y]
-            self.selectedPiece = item
-            self.logger.info(f"PGN: {self.pgn}")
-            self.logger.info(f"{from_x}, {from_y}, {to_x}, {to_y}, selectedPiece: {self.selectedPiece}")
-            self.make_turn((to_x, to_y))
-            self.next_turn()
+            self.deque.append(f"ai|{pgn}")
 
         self.stockfish.get_best_move(callback)
+
+    def make_turn_by_square_notation(self, notation):
+        moves = []
+        for i, char in enumerate(notation):
+            if char in Board.row_notation:
+                moves.append(notation[i:i + 2])
+
+        self.logger.info(f"Moves: {moves}")
+
+        from_pos, to_pos = moves
+        from_x = Board.row_notation.index(from_pos[0])
+        from_y = Board.col_notation.index(from_pos[1])
+
+        to_x = Board.row_notation.index(to_pos[0])
+        to_y = Board.col_notation.index(to_pos[1])
+        item = self.coordinate[from_x][from_y]
+        self.selectedPiece = item
+        self.logger.info(f"PGN: {self.pgn}")
+        self.logger.info(f"{from_x}, {from_y}, {to_x}, {to_y}, selectedPiece: {self.selectedPiece}")
+        self.make_turn((to_x, to_y))
+        self.next_turn()
 
     def create_pgn_turn(self, piece: Piece, dest: tuple[int, int], capture=None) -> str:
         x, y = dest[0], dest[1]
