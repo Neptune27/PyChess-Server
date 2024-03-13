@@ -136,6 +136,24 @@ class GreenDot(Piece, Sprite):
         self.hidden_rect = self.rect.inflate(90, 90)
 
 
+class PromotionBoard(Sprite):
+    def __init__(self, x: int, y: int) -> None:
+        Sprite.__init__(self)
+        self.y = y
+        self.x = x
+        self.image = pygame.Surface((100, 400))
+        self.image.fill((0, 125, 0))
+        self.rect = self.image.get_rect()
+        self.rect.center = self._compute_center()
+
+    def _compute_center(self):
+        value = 100
+        pos_x = self.x * value + math.floor(value / 2)
+        pos_y = self.y * value + math.floor(value / 2)
+
+        return pos_x, pos_y
+
+
 def _is_out_of_bounds(x, y):
     if x < 0 or y < 0 or x > 7 or y > 7:
         return True
@@ -144,12 +162,18 @@ def _is_out_of_bounds(x, y):
 
 
 class Pawn(Piece):
-    def __init__(self, is_white: bool, x: int, y: int, is_first_move=False, is_selected=False) -> None:
+    def __init__(self, is_white: bool, x: int, y: int, is_first_move=False, is_selected=False,
+                 is_promoting=False) -> None:
         super().__init__(is_white, x, y, is_selected)
+        self.is_promoting = is_promoting
         self.name = "Pawn"
         self.shortName = ""
         self.is_first_move = is_first_move
         self.first_move_y = -1
+
+        # For promoting
+        self.prev_x = x
+        self.prev_y = y
 
         if self.is_white:
             self.image = pygame.image.load("assets/img/white_pawn.png", )
@@ -165,19 +189,17 @@ class Pawn(Piece):
     def move(self, x, y):
         if self.can_two_square_move():
             self.is_first_move = True
-            self.first_move_y = y
-        elif self.first_move_y == y:
-            self.is_first_move = True
         else:
             self.is_first_move = False
 
+        self.prev_x, self.prev_y = self.x, self.y
         Piece.move(self, x, y)
 
     def _compute(self, board: ndarray[Any, dtype]):
         """Generate pawn moves"""
+
         # -------------------------------------
         x, y = self.x, self.y
-        # piece_color, piece_type = chess_square  # type: ignore
         direction = -1 if self.is_white else 1
         # -------------------------------------
         movements, _ = self.get_piece_moves_dict("P")
@@ -231,10 +253,22 @@ class Pawn(Piece):
         y = 6 if self.is_white else 1
         return self.y == y
 
+    def make_promote(self):
+        x = self.x + 1 if self.x < 7 else self.x - 1
+        y = 0 if self.is_white else 4
+        self.possibleMoves.add(PromotionBoard(x, y))
+        self.possibleMoves.add(Queen(self.is_white, x, y))
+        self.possibleMoves.add(Rook(self.is_white, x, y + 1))
+        self.possibleMoves.add(Bishop(self.is_white, x, y + 2))
+        self.possibleMoves.add(Knight(self.is_white, x, y + 3))
+
     def compute_possible_moves(self, board: ndarray[Any, dtype]):
         self.possibleMoves.empty()
 
-        self._compute(board)
+        if self.is_promoting:
+            self.make_promote()
+        else:
+            self._compute(board)
 
 
 class Rook(Piece):
@@ -292,8 +326,11 @@ class Bishop(Piece):
 
 
 class King(Piece):
-    def __init__(self, is_white: bool, x: int, y: int, is_selected=False) -> None:
+    def __init__(self, is_white: bool, x: int, y: int, can_castle_king: bool = True, can_castle_queen: bool = True,
+                 is_selected=False) -> None:
         super().__init__(is_white, x, y, is_selected)
+        self.can_castle_queen = can_castle_queen
+        self.can_castle_king = can_castle_king
         self.name = "King"
         self.shortName = "K"
 
@@ -307,6 +344,43 @@ class King(Piece):
 
         self.rect = self.image.get_rect()
         self.rect.center = self._compute_center()
+
+    def _is_range_none(self, from_x: int, to_x, y: int, board: ndarray) -> bool:
+        for i in range(from_x, to_x):
+            item = board[i, y]
+            if item is not None:
+                return False
+
+        return True
+
+    def compute_castle(self, board: ndarray):
+        if not self.can_castle_queen and not self.can_castle_king:
+            return
+
+        x = 4
+        y = 7 if self.is_white else 0
+
+        if self.x != x or self.y != y:
+            return
+
+        left_rook = board[0, y]
+        if left_rook is None:
+            self.can_castle_queen = False
+
+        if (self.can_castle_queen and left_rook and isinstance(left_rook, Rook)
+                and self._is_range_none(1, 4, y, board) and left_rook.is_white == self.is_white):
+            self.possibleMoves.add(GreenDot(2, y))
+
+        right_rook = board[7, y]
+        if right_rook is None:
+            self.can_castle_king = False
+        if (self.can_castle_king and isinstance(right_rook, Rook)
+                and self._is_range_none(5, 7, y, board) and left_rook.is_white == self.is_white):
+            self.possibleMoves.add(GreenDot(6, y))
+
+    def compute_possible_moves(self, board: ndarray):
+        Piece.compute_possible_moves(self, board)
+        self.compute_castle(board)
 
 
 class Queen(Piece):

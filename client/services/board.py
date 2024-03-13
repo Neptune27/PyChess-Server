@@ -68,8 +68,10 @@ class Board(BaseService):
         # self.pieces.add(self.k)
 
         self.setDefaultBoard()
-        # self.set  BoardByFEN("k7/p7/8/8/1P6/8/8/K7 w KQkq - 0 1")
+        # self.setBoardByFEN("2b1kbnr/1P3ppp/8/4p3/8/8/RPP1PPPP/1NB1KBNR b Kk - 0 9")
+        # self.setBoardByFEN("k7/p7/8/8/1P6/8/8/K7 w - - 0 1")
         # self.setBoardByFEN("rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2")
+        # self.setBoardByFEN("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1")
         # self.setBoardByFEN("rnbqkb1r/pp1p1ppp/8/2p1p3/8/3N1N2/PPPPPPPP/R1BQKB1R w KQkq - 0 6    ")
         # self.stockfish.set_fen_position("rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2")
         self.compute_legal_move()
@@ -278,7 +280,7 @@ class Board(BaseService):
             return
 
         self.selectedPiece = piece
-        self.logger.info(f"Selected Piece: {piece} at {piece.x} and {piece.y}")
+        # self.logger.info(f"Selected Piece: {piece} at {piece.x} and {piece.y}")
         self.selectedPiece.is_selected = True
 
         # if self.is_white_turn != piece.is_white:
@@ -291,6 +293,14 @@ class Board(BaseService):
         # self.best_move = self.stockfish.get_best_move()
         # self.logger.info(f"Best move: {self.best_move}")
 
+    def to_pgn(self):
+        result = ""
+        for i, move in enumerate(self.pgn):
+            if i % 2 == 0:
+                result += f"{math.floor(i / 2) + 1}. "
+            result += move + " "
+        return result
+
     def _handle_best_move(self, return_value):
         self.best_move = return_value
         self.logger.info(f"Best move: {self.best_move}")
@@ -299,6 +309,8 @@ class Board(BaseService):
         self.is_white_turn = not self.is_white_turn
         if self.is_ai and self.is_white_turn == self.ai_turn:
             self.make_turn_by_stockfish()
+            self.ai_turn = not self.ai_turn
+
         self.stockfish.get_best_move(self._handle_best_move)
         self.compute_legal_move()
 
@@ -306,12 +318,29 @@ class Board(BaseService):
         if self.selectedPiece is None:
             return
 
-        clicked_sprites = [s for s in self.selectedPiece.possibleMoves if s.hidden_rect.collidepoint(pos)]
+        extra = ""
+        clicked_sprites = []
+
+        if isinstance(self.selectedPiece, Pawn) and self.selectedPiece.is_promoting:
+            clicked_sprites = [s for s in self.selectedPiece.possibleMoves if s.rect.collidepoint(pos)
+                               and isinstance(s, Piece)]
+
+            if len(clicked_sprites) != 0:
+                piece = clicked_sprites[0]
+                extra = piece.shortName
+            else:
+                return
+        else:
+            clicked_sprites = [s for s in self.selectedPiece.possibleMoves if s.hidden_rect.collidepoint(pos)]
+
         if len(clicked_sprites) > 0:
             self.logger.info(f"Move to pos: {clicked_sprites[0].x}, {clicked_sprites[0].y}")
-            self.make_turn((clicked_sprites[0].x, clicked_sprites[0].y))
+            self.make_turn((clicked_sprites[0].x, clicked_sprites[0].y), False, extra)
+            if isinstance(self.selectedPiece, Pawn):
+                if self.selectedPiece.is_promoting:
+                    self.selectedPiece.is_selected = True
+                    return
             self.next_turn()
-
 
         else:
             self.selectedPiece.is_selected = False
@@ -335,7 +364,18 @@ class Board(BaseService):
             return item
         return None
 
-    def make_turn(self, dest: tuple[int, int], test_mode=False) -> None | Piece:
+    def _handle_castle(self, from_piece: Piece, x, y, test_mode=False):
+        x_distance = from_piece.x - x
+        rook_pos = x + 1 if x_distance == 2 else x - 1
+        if abs(x_distance) == 2:
+            rook = self.coordinate[0, y] if rook_pos == 3 else self.coordinate[7, y]
+            prev_selected = from_piece
+            self.selectedPiece = rook
+            self.make_turn((rook_pos, y), True)
+            self.selectedPiece = from_piece
+            # rook.compute_possible_moves(self.coordinate)
+
+    def make_turn(self, dest: tuple[int, int], test_mode=False, extra="") -> None | Piece:
         x, y = dest[0], dest[1]
 
         from_piece = self.selectedPiece
@@ -351,18 +391,48 @@ class Board(BaseService):
         self.coordinate[from_x, from_y] = None
 
         if isinstance(from_piece, Pawn):
+            if not test_mode and extra == "" and (y == 7 or y == 0):
+                from_piece.is_promoting = True
+                from_piece.compute_possible_moves(self.coordinate)
+                self.selectedPiece = from_piece
+                test_mode = True
+            else:
+                from_piece.is_promoting = False
+
             dest_item = self._handle_en_passant(from_piece, dest)
             dest_item = self.coordinate[x, y] if dest_item is None else dest_item
 
-        if not test_mode:
-            pgn = self.create_pgn_turn(from_piece, dest, dest_item)
-            square_name = self.create_square_name(from_piece, dest)
-            self.stockfish.make_move(square_name)
-            self.pgn.append(pgn)
-            self.logger.info(f"PGN: {self.pgn}")
-            self.logger.info(f"Long PGN: {square_name}")
+        if isinstance(from_piece, King):
+            if not test_mode:
+                from_piece.can_castle = False
 
-        from_piece.move(x, y)
+            if from_piece.x == 4:
+                self._handle_castle(from_piece, x, y, test_mode)
+
+        if not test_mode:
+            pgn = self.create_pgn_turn(from_piece, dest, dest_item, extra)
+            square_name = self.create_square_name(from_piece, dest, extra)
+            self.logger.info(f"Square name: {square_name}")
+
+            if self.is_ai:
+                self.stockfish.make_move(square_name)
+            self.pgn.append(pgn)
+            self.logger.info(self.to_pgn())
+            # self.logger.info(f"PGN: {self.pgn}")
+            # self.logger.info(f"Long PGN: {square_name}")
+
+        if extra != "" and isinstance(from_piece, Pawn):
+            match extra:
+                case "Q":
+                    self.set_piece(Queen(from_piece.is_white, from_piece.x, from_piece.y))
+                case "R":
+                    self.set_piece(Rook(from_piece.is_white, from_piece.x, from_piece.y))
+                case "B":
+                    self.set_piece(Bishop(from_piece.is_white, from_piece.x, from_piece.y))
+                case "K":
+                    self.set_piece(Knight(from_piece.is_white, from_piece.x, from_piece.y))
+        else:
+            from_piece.move(x, y)
 
         self.coordinate[x, y] = from_piece
 
@@ -406,9 +476,16 @@ class Board(BaseService):
         self.make_turn((to_x, to_y))
         self.next_turn()
 
-    def create_pgn_turn(self, piece: Piece, dest: tuple[int, int], capture=None) -> str:
+    def create_pgn_turn(self, piece: Piece, dest: tuple[int, int], capture=None, extra="") -> str:
         x, y = dest[0], dest[1]
         adder = ""
+
+        if isinstance(piece, King):
+            dist = piece.x - dest[0]
+            if dist == 2:
+                return "O-O-O"
+            elif dist == -2:
+                return "O-O"
 
         if capture is None:
             capture = self.coordinate[x][y]
@@ -423,9 +500,13 @@ class Board(BaseService):
 
         pos = Board.row_notation[x] + Board.col_notation[y]
 
-        return piece.shortName + adder + pos
+        if extra != "":
+            extra = "=" + extra
+            pos = pos[0]+ Board.col_notation[piece.y]
 
-    def create_square_name(self, piece: Piece, dest: tuple[int, int]):
+        return piece.shortName + adder + pos + extra
+
+    def create_square_name(self, piece: Piece, dest: tuple[int, int], extra=""):
         x, y = dest[0], dest[1]
         adder = ""
 
@@ -443,8 +524,11 @@ class Board(BaseService):
         #     adder += "x"
         #
         pos = Board.row_notation[x] + Board.col_notation[y]
+        if extra != "":
+            long = Board.row_notation[piece.prev_x] + Board.col_notation[piece.prev_y]
+            pos = Board.row_notation[piece.x] + Board.col_notation[piece.y]
 
-        return long + pos
+        return long + pos + extra.lower()
 
     def pgn_for_pairs(self, piece: Piece, dest: tuple[int, int]) -> str:
         x, y = dest[0], dest[1]
@@ -460,10 +544,25 @@ class Board(BaseService):
         self.logger.info(can_other_move_to_dest)
         return Board.row_notation[piece.x] if len(can_other_move_to_dest) > 0 else ""
 
+    def handle_king(self, piece: Piece, x, y):
+        x_distance = piece.x - x
+        if abs(x_distance) != 2:
+            return
+
+        rook_pos = x - 1 if piece.x == 2 else x + 1
+
+        rook = self.coordinate[rook_pos, piece.y]
+        self.selectedPiece = rook
+        if x_distance == 2:
+            self.make_turn((7, y), True)
+        elif x_distance == -2:
+            self.make_turn((0, y), True)
+
+        self.selectedPiece = piece
+
     def filter_invalid_moves(self) -> None:
         black_king, white_king = self.get_black_and_white_king()
         team_king = white_king if self.is_white_turn else black_king
-        temp_selected_piece = self.selectedPiece
         opponents = [p for p in self.pieces if p.is_white != self.is_white_turn]
         teams = [p for p in self.pieces if p.is_white == self.is_white_turn]
 
@@ -495,6 +594,10 @@ class Board(BaseService):
 
                 # Undo
                 self.selectedPiece = piece
+
+                if isinstance(piece, King):
+                    self.handle_king(piece, x, y)
+
                 self.make_turn((x, y), True)
 
                 if remove_piece is not None:
@@ -509,6 +612,9 @@ class Board(BaseService):
 
         for piece in teams:
             x, y = piece.x, piece.y
+            # self.logger.info(illegal_move_dict)
+            # self.logger.info(piece)
+            # self.logger.info([(p.x, p.y) for p in [p for p in piece.possibleMoves]])
             possible = filter(lambda possible_move: self._compare(possible_move, illegal_move_dict[(x, y)]),
                               piece.possibleMoves)
             # [move for move in piece.possibleMoves if move not in illegal_move_dict[piece]]

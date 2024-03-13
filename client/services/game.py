@@ -44,8 +44,7 @@ class Game(BaseService):
                     exit()
 
                 if event.type == pygame.MOUSEBUTTONDOWN:
-                    self.logger.info(event)
+                    # self.logger.info(event)
                     self.board.handle_event(event)
-
 
             pygame.display.flip()
