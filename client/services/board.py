@@ -44,19 +44,6 @@ class Board(BaseService):
 
         self.deque = deque()
 
-        # self.p = Pawn(False, 0, 0)
-        # self.p2 = Pawn(False, 5, 2)
-        # self.p1 = Pawn(True, 1, 1)
-        # self.r = Rook(True, 2, 2)
-        # self.n = Knight(True, 5, 5)
-        # self.k = King(False, 7, 2)
-        # self.coordinate[0, 0] = self.p
-        # self.coordinate[1, 1] = self.p1
-        # self.coordinate[5, 2] = self.p2
-        # self.coordinate[2, 2] = self.r
-        # self.coordinate[5, 5] = self.n
-        # self.coordinate[7, 2] = self.k
-        #
         self.pgn: list[str] = []
 
         self.pieces = pygame.sprite.Group()
@@ -69,7 +56,7 @@ class Board(BaseService):
 
         self.setDefaultBoard()
         # self.setBoardByFEN("2b1kbnr/1P3ppp/8/4p3/8/8/RPP1PPPP/1NB1KBNR b Kk - 0 9")
-        # self.setBoardByFEN("k7/p7/8/8/1P6/8/8/K7 w - - 0 1")
+        # self.setBoardByFEN("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1")
         # self.setBoardByFEN("rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2")
         # self.setBoardByFEN("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1")
         # self.setBoardByFEN("rnbqkb1r/pp1p1ppp/8/2p1p3/8/3N1N2/PPPPPPPP/R1BQKB1R w KQkq - 0 6    ")
@@ -364,16 +351,19 @@ class Board(BaseService):
             return item
         return None
 
-    def _handle_castle(self, from_piece: Piece, x, y, test_mode=False):
+    def _handle_castle(self, from_piece: King, x, y, test_mode=False):
+        q, k = from_piece.can_castle_queen, from_piece.can_castle_king
+
         x_distance = from_piece.x - x
         rook_pos = x + 1 if x_distance == 2 else x - 1
         if abs(x_distance) == 2:
             rook = self.coordinate[0, y] if rook_pos == 3 else self.coordinate[7, y]
-            prev_selected = from_piece
             self.selectedPiece = rook
             self.make_turn((rook_pos, y), True)
             self.selectedPiece = from_piece
-            # rook.compute_possible_moves(self.coordinate)
+
+        if test_mode:
+            from_piece.can_castle_queen, from_piece.can_castle_king = q, k
 
     def make_turn(self, dest: tuple[int, int], test_mode=False, extra="") -> None | Piece:
         x, y = dest[0], dest[1]
@@ -403,9 +393,6 @@ class Board(BaseService):
             dest_item = self.coordinate[x, y] if dest_item is None else dest_item
 
         if isinstance(from_piece, King):
-            if not test_mode:
-                from_piece.can_castle = False
-
             if from_piece.x == 4:
                 self._handle_castle(from_piece, x, y, test_mode)
 
@@ -429,7 +416,7 @@ class Board(BaseService):
                     self.set_piece(Rook(from_piece.is_white, from_piece.x, from_piece.y))
                 case "B":
                     self.set_piece(Bishop(from_piece.is_white, from_piece.x, from_piece.y))
-                case "K":
+                case "N":
                     self.set_piece(Knight(from_piece.is_white, from_piece.x, from_piece.y))
         else:
             from_piece.move(x, y)
@@ -502,7 +489,7 @@ class Board(BaseService):
 
         if extra != "":
             extra = "=" + extra
-            pos = pos[0]+ Board.col_notation[piece.y]
+            pos = pos[0] + Board.col_notation[piece.y]
 
         return piece.shortName + adder + pos + extra
 
@@ -545,6 +532,9 @@ class Board(BaseService):
         return Board.row_notation[piece.x] if len(can_other_move_to_dest) > 0 else ""
 
     def handle_king(self, piece: Piece, x, y):
+        if not isinstance(piece, King):
+            return
+
         x_distance = piece.x - x
         if abs(x_distance) != 2:
             return
@@ -577,6 +567,9 @@ class Board(BaseService):
 
             for move in piece.possibleMoves:
 
+                cloned_piece = piece.clone()
+                b_king, w_king = black_king.clone(), white_king.clone()
+
                 self.selectedPiece = piece
                 remove_piece = self.make_turn((move.x, move.y), True)
 
@@ -593,12 +586,17 @@ class Board(BaseService):
                         break
 
                 # Undo
-                self.selectedPiece = piece
+                self.coordinate[piece.x, piece.y] = None
 
                 if isinstance(piece, King):
                     self.handle_king(piece, x, y)
 
-                self.make_turn((x, y), True)
+                black_king.clone_from(b_king)
+                white_king.clone_from(w_king)
+
+                piece.clone_from(cloned_piece)
+                self.coordinate[piece.x, piece.y] = piece
+                # self.make_turn((x, y), True)
 
                 if remove_piece is not None:
                     self.set_piece(remove_piece)

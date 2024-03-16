@@ -1,6 +1,7 @@
 import math
 from abc import abstractmethod
 from typing import Any, Callable, Tuple
+from copy import deepcopy
 
 import pygame
 from numpy import ndarray, dtype
@@ -72,6 +73,11 @@ class Piece(BaseService, Sprite):
     def clone(self):
         return Piece(self.is_white, self.x, self.y)
 
+    def clone_from(self, other):
+        self.is_selected = other.is_selected
+        self.move(other.x, other.y)
+        self.is_white = other.is_white
+
     def _generate_non_pawn_move(self, board: ndarray) -> None:
         piece_type = self.shortName
         movements, is_continuous = self.get_piece_moves_dict(piece_type)
@@ -105,19 +111,6 @@ class Piece(BaseService, Sprite):
     def compute_possible_moves(self, board: ndarray):
         self.possibleMoves.empty()
         self._generate_non_pawn_move(board)
-
-        # pin_items = self.is_pin(board)
-
-        # if len(pin_items) > 1:
-        #     return
-
-        # if len(pin_items) == 1:
-        #     pinned_item = pin_items[0]
-        #     can_remove = [p for p in self.possibleMoves if p.x == pinned_item.x and p.y == pinned_item.y]
-        #     self.possibleMoves.empty()
-        #
-        #     if len(can_remove):
-        #         self.possibleMoves.add(GreenDot(pinned_item.x, pinned_item.y))
 
     def update(self, *args, **kwargs):
         if self.is_selected:
@@ -185,6 +178,15 @@ class Pawn(Piece):
 
         self.rect = self.image.get_rect()
         self.rect.center = self._compute_center()
+
+    def clone(self):
+        return Pawn(self.is_white, self.x, self.y, self.is_first_move, self.is_selected, self.is_promoting)
+
+    def clone_from(self, other):
+        self.is_selected = other.is_selected
+        self.move(other.x, other.y)
+        self.is_white = other.is_white
+        self.is_promoting = other.is_promoting
 
     def move(self, x, y):
         if self.can_two_square_move():
@@ -288,6 +290,13 @@ class Rook(Piece):
         self.rect = self.image.get_rect()
         self.rect.center = self._compute_center()
 
+    def clone(self):
+        return Rook(self.is_white, self.x, self.y, self.is_selected)
+
+    def clone_from(self, other):
+        self.is_selected = other.is_selected
+        self.move(other.x, other.y)
+        self.is_white = other.is_white
 
 class Knight(Piece):
     def __init__(self, is_white: bool, x: int, y: int, is_selected=False) -> None:
@@ -306,6 +315,14 @@ class Knight(Piece):
         self.rect = self.image.get_rect()
         self.rect.center = self._compute_center()
 
+    def clone(self):
+        return Knight(self.is_white, self.x, self.y, self.is_selected)
+
+    def clone_from(self, other):
+        self.is_selected = other.is_selected
+        self.move(other.x, other.y)
+        self.is_white = other.is_white
+
 
 class Bishop(Piece):
     def __init__(self, is_white: bool, x: int, y: int, is_selected=False) -> None:
@@ -323,6 +340,14 @@ class Bishop(Piece):
 
         self.rect = self.image.get_rect()
         self.rect.center = self._compute_center()
+
+    def clone(self):
+        return Bishop(self.is_white, self.x, self.y, self.is_selected)
+
+    def clone_from(self, other):
+        self.is_selected = other.is_selected
+        self.move(other.x, other.y)
+        self.is_white = other.is_white
 
 
 class King(Piece):
@@ -345,6 +370,16 @@ class King(Piece):
         self.rect = self.image.get_rect()
         self.rect.center = self._compute_center()
 
+    def clone(self):
+        return King(self.is_white, self.x, self.y, self.can_castle_king, self.can_castle_queen, self.is_selected)
+
+    def clone_from(self, other):
+        self.is_selected = other.is_selected
+        self.move(other.x, other.y)
+        self.is_white = other.is_white
+        self.can_castle_queen = other.can_castle_queen
+        self.can_castle_king = other.can_castle_king
+
     def _is_range_none(self, from_x: int, to_x, y: int, board: ndarray) -> bool:
         for i in range(from_x, to_x):
             item = board[i, y]
@@ -363,19 +398,25 @@ class King(Piece):
         if self.x != x or self.y != y:
             return
 
+        self._handle_queen_castle(board, y)
+        self._handle_king_castle(board, y)
+
+    def _handle_queen_castle(self, board: ndarray, y):
         left_rook = board[0, y]
-        if left_rook is None:
+        if left_rook is None or left_rook.is_white != self.is_white:
             self.can_castle_queen = False
 
         if (self.can_castle_queen and left_rook and isinstance(left_rook, Rook)
                 and self._is_range_none(1, 4, y, board) and left_rook.is_white == self.is_white):
             self.possibleMoves.add(GreenDot(2, y))
 
+    def _handle_king_castle(self, board: ndarray, y):
         right_rook = board[7, y]
-        if right_rook is None:
+        if right_rook is None or right_rook.is_white != self.is_white:
             self.can_castle_king = False
+
         if (self.can_castle_king and isinstance(right_rook, Rook)
-                and self._is_range_none(5, 7, y, board) and left_rook.is_white == self.is_white):
+                and self._is_range_none(5, 7, y, board) and right_rook.is_white == self.is_white):
             self.possibleMoves.add(GreenDot(6, y))
 
     def compute_possible_moves(self, board: ndarray):
@@ -399,3 +440,11 @@ class Queen(Piece):
 
         self.rect = self.image.get_rect()
         self.rect.center = self._compute_center()
+
+    def clone(self):
+        return Queen(self.is_white, self.x, self.y, self.is_selected)
+
+    def clone_from(self, other):
+        self.is_selected = other.is_selected
+        self.move(other.x, other.y)
+        self.is_white = other.is_white
