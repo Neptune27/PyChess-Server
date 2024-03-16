@@ -137,12 +137,13 @@ class PromotionBoard(Sprite):
         self.image = pygame.Surface((100, 400))
         self.image.fill((0, 125, 0))
         self.rect = self.image.get_rect()
-        self.rect.center = self._compute_center()
+        self.rect.left = self.x * 100
+        self.rect.top = self.y * 100
 
     def _compute_center(self):
         value = 100
         pos_x = self.x * value + math.floor(value / 2)
-        pos_y = self.y * value + math.floor(value / 2)
+        pos_y = (self.y * value + math.floor(value / 2)) / 2
 
         return pos_x, pos_y
 
@@ -180,13 +181,18 @@ class Pawn(Piece):
         self.rect.center = self._compute_center()
 
     def clone(self):
-        return Pawn(self.is_white, self.x, self.y, self.is_first_move, self.is_selected, self.is_promoting)
+        pawn = Pawn(self.is_white, self.x, self.y, self.is_first_move, self.is_selected, self.is_promoting)
+        pawn.prev_x = self.prev_x
+        pawn.prev_y = self.prev_y
+        return pawn
 
     def clone_from(self, other):
         self.is_selected = other.is_selected
         self.move(other.x, other.y)
         self.is_white = other.is_white
         self.is_promoting = other.is_promoting
+        self.prev_x = other.prev_x
+        self.prev_y = other.prev_y
 
     def move(self, x, y):
         if self.can_two_square_move():
