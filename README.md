@@ -1,0 +1,1 @@
+Fork from Neptune27/PyChess, separate client and server for easy bundle
