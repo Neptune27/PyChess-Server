@@ -7,7 +7,7 @@ import pygame
 from numpy import ndarray, dtype
 from pygame.sprite import Sprite
 
-from client.services.base_service import BaseService
+from services.base_service import BaseService
 
 
 class Piece(BaseService, Sprite):
@@ -33,7 +33,7 @@ class Piece(BaseService, Sprite):
         self.name = "Piece"
         self.shortName = "P"
 
-        self.possibleMoves = pygame.sprite.Group()
+        self.possible_moves = pygame.sprite.Group()
 
     @property
     def x(self) -> int:
@@ -90,7 +90,7 @@ class Piece(BaseService, Sprite):
 
                 # Check if the square is empty
                 if item is None:
-                    self.possibleMoves.add(GreenDot(new_x, new_y))
+                    self.possible_moves.add(GreenDot(new_x, new_y))
 
                     if not is_continuous:  # If piece type doesn't continuously move e.g Knight, Pawn, King etc..
                         break
@@ -105,16 +105,16 @@ class Piece(BaseService, Sprite):
                     if item.is_white == self.is_white:
                         break
                     # Collides with enemy piece
-                    self.possibleMoves.add(GreenDot(new_x, new_y))
+                    self.possible_moves.add(GreenDot(new_x, new_y))
                     break
 
     def compute_possible_moves(self, board: ndarray):
-        self.possibleMoves.empty()
+        self.possible_moves.empty()
         self._generate_non_pawn_move(board)
 
     def update(self, *args, **kwargs):
         if self.is_selected:
-            self.possibleMoves.draw(kwargs['screen'])
+            self.possible_moves.draw(kwargs['screen'])
 
 
 class GreenDot(Piece, Sprite):
@@ -166,8 +166,8 @@ class Pawn(Piece):
         self.first_move_y = -1
 
         # For promoting
-        self.prev_x = x
-        self.prev_y = y
+        self.next_x = x
+        self.next_y = y
 
         if self.is_white:
             self.image = pygame.image.load("assets/img/white_pawn.png", )
@@ -182,8 +182,8 @@ class Pawn(Piece):
 
     def clone(self):
         pawn = Pawn(self.is_white, self.x, self.y, self.is_first_move, self.is_selected, self.is_promoting)
-        pawn.prev_x = self.prev_x
-        pawn.prev_y = self.prev_y
+        pawn.next_x = self.next_x
+        pawn.next_y = self.next_x
         return pawn
 
     def clone_from(self, other):
@@ -191,8 +191,8 @@ class Pawn(Piece):
         self.move(other.x, other.y)
         self.is_white = other.is_white
         self.is_promoting = other.is_promoting
-        self.prev_x = other.prev_x
-        self.prev_y = other.prev_y
+        self.next_x = other.next_x
+        self.next_y = other.next_y
 
     def move(self, x, y):
         if self.can_two_square_move():
@@ -200,8 +200,10 @@ class Pawn(Piece):
         else:
             self.is_first_move = False
 
-        self.prev_x, self.prev_y = self.x, self.y
-        Piece.move(self, x, y)
+        if self.is_promoting:
+            self.next_x, self.next_y = x, y
+        else:
+            Piece.move(self, x, y)
 
     def _compute(self, board: ndarray[Any, dtype]):
         """Generate pawn moves"""
@@ -217,15 +219,14 @@ class Pawn(Piece):
             return
 
         # One square move
-        cas = board[x][y + direction]
         if board[x][y + direction] is None:  # If empty
-            self.possibleMoves.add(GreenDot(x, y + direction))
+            self.possible_moves.add(GreenDot(x, y + direction))
             # Two square move
 
             if self.can_two_square_move() and board[x][y + (direction * 2)] is None:
                 # If its empty and pawn hasn't moved
                 # f"{col}{row}:{col}{row + (direction * 2)}:N")
-                self.possibleMoves.add(GreenDot(x, y + (direction * 2)))
+                self.possible_moves.add(GreenDot(x, y + (direction * 2)))
 
         # Captures
         for add_x in movements:
@@ -244,7 +245,7 @@ class Pawn(Piece):
                 raise ValueError("item is not a Piece")
 
             if item.is_white != self.is_white:  # Collides with enemy
-                self.possibleMoves.add(GreenDot(new_x, new_y))
+                self.possible_moves.add(GreenDot(new_x, new_y))
 
     def _add_en_passant(self, board: ndarray, move: tuple[int, int]) -> None:
         check_pos = 2 if self.is_white else 5
@@ -255,7 +256,7 @@ class Pawn(Piece):
         x, y = move[0], move[1] + adder
         item = board[x][y]
         if isinstance(item, Pawn) and item.is_white != self.is_white and item.is_first_move:
-            self.possibleMoves.add(GreenDot(move[0], move[1]))
+            self.possible_moves.add(GreenDot(move[0], move[1]))
 
     def can_two_square_move(self):
         y = 6 if self.is_white else 1
@@ -264,14 +265,14 @@ class Pawn(Piece):
     def make_promote(self):
         x = self.x + 1 if self.x < 7 else self.x - 1
         y = 0 if self.is_white else 4
-        self.possibleMoves.add(PromotionBoard(x, y))
-        self.possibleMoves.add(Queen(self.is_white, x, y))
-        self.possibleMoves.add(Rook(self.is_white, x, y + 1))
-        self.possibleMoves.add(Bishop(self.is_white, x, y + 2))
-        self.possibleMoves.add(Knight(self.is_white, x, y + 3))
+        self.possible_moves.add(PromotionBoard(x, y))
+        self.possible_moves.add(Queen(self.is_white, x, y))
+        self.possible_moves.add(Rook(self.is_white, x, y + 1))
+        self.possible_moves.add(Bishop(self.is_white, x, y + 2))
+        self.possible_moves.add(Knight(self.is_white, x, y + 3))
 
     def compute_possible_moves(self, board: ndarray[Any, dtype]):
-        self.possibleMoves.empty()
+        self.possible_moves.empty()
 
         if self.is_promoting:
             self.make_promote()
@@ -414,7 +415,7 @@ class King(Piece):
 
         if (self.can_castle_queen and left_rook and isinstance(left_rook, Rook)
                 and self._is_range_none(1, 4, y, board) and left_rook.is_white == self.is_white):
-            self.possibleMoves.add(GreenDot(2, y))
+            self.possible_moves.add(GreenDot(2, y))
 
     def _handle_king_castle(self, board: ndarray, y):
         right_rook = board[7, y]
@@ -423,7 +424,7 @@ class King(Piece):
 
         if (self.can_castle_king and isinstance(right_rook, Rook)
                 and self._is_range_none(5, 7, y, board) and right_rook.is_white == self.is_white):
-            self.possibleMoves.add(GreenDot(6, y))
+            self.possible_moves.add(GreenDot(6, y))
 
     def compute_possible_moves(self, board: ndarray):
         Piece.compute_possible_moves(self, board)

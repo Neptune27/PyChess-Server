@@ -15,7 +15,6 @@ class StockfishService(BaseService):
         BaseService.__init__(self)
         self.callback = None
         self.setting = setting
-        self.event = threading.Event()
 
         self.stockfish_path = "stockfish/windows/stockfish.exe" if platform.system() == "Windows" \
             else "stockfish/linux/stockfish"

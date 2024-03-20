@@ -4,6 +4,7 @@ from dependency_injector import containers, providers
 from client.services.board import Board
 from client.services.game import Game
 from client.services.setting import Setting
+from client.services.socket_service import SocketService
 from client.services.stockfish_service import Stockfish, StockfishService
 
 
@@ -27,10 +28,14 @@ class Container(containers.DeclarativeContainer):
         setting=setting
     )
 
-    # Services
-    board = providers.Factory(Board, setting=setting, stockfish=stockfish)
+    socket_service = providers.Singleton(
+        SocketService
+    )
 
-    game = providers.Factory(Game, setting=setting, board=board, stockfish=StockfishService)
+    # Services
+    board = providers.Factory(Board, setting=setting, stockfish=stockfish, socket_service=socket_service)
+
+    game = providers.Factory(Game, setting=setting, board=board, stockfish=stockfish, socket_service=socket_service)
     
 
 

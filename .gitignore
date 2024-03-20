@@ -1,2 +1,5 @@
 .idea
 stockfish/
+temp/
+dist/
+build/
